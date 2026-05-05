@@ -157,7 +157,7 @@ Create order request shape:
 {
   "customerId": "00000000-0000-0000-0000-000000000000",
   "shippingAddress": {
-    "line": "123 Market St, San Francisco, CA 94103"
+    "addressLine": "123 Market St, San Francisco, CA 94103"
   },
   "items": [
     {
@@ -180,7 +180,7 @@ Successful order responses use the same `shippingAddress` object shape:
   "warehouseId": "00000000-0000-0000-0000-000000000000",
   "status": "PAID",
   "shippingAddress": {
-    "line": "123 Market St, San Francisco, CA 94103"
+    "addressLine": "123 Market St, San Francisco, CA 94103"
   },
   "items": [
     {
@@ -340,13 +340,13 @@ curl -i -X POST http://localhost:8080/orders \
   -H "Idempotency-Key: smoke-$(date +%s)" \
   -d "{
     \"customerId\": \"$CUSTOMER_ID\",
-    \"shippingAddress\": { \"line\": \"123 Market St, San Francisco, CA 94103\" },
+    \"shippingAddress\": { \"addressLine\": \"123 Market St, San Francisco, CA 94103\" },
     \"items\": [{ \"productId\": \"$PRODUCT_ID\", \"quantity\": 2 }],
     \"payment\": { \"cardNumber\": \"4111 1111 1111 1111\" }
   }"
 ```
 
-Expected response: HTTP 201 with the order JSON, including `warehouseId`, `shippingAddress.line`, `cardLast4: "1111"`, `status: "PAID"`.
+Expected response: HTTP 201 with the order JSON, including `warehouseId`, `shippingAddress.addressLine`, `cardLast4: "1111"`, `status: "PAID"`.
 
 ---
 

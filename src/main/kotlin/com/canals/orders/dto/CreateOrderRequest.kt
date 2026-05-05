@@ -28,7 +28,7 @@ data class CreateOrderRequest(
 data class AddressDto(
     @field:NotBlank
     @field:Size(max = 300)
-    val line: String,
+    val addressLine: String,
 )
 
 data class OrderItemDto(

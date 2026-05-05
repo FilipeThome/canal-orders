@@ -44,16 +44,16 @@ import java.util.UUID
 class OrderService(
     private val customerService: CustomerService,
     private val productService: ProductService,
-    private val warehouseSelection: WarehouseSelectionService,
+    private val warehouseSelectionService: WarehouseSelectionService,
     private val warehouseStockService: WarehouseStockService,
-    private val orderRepo: OrderRepository,
-    private val geocoding: GeocodingService,
-    private val payment: PaymentService,
+    private val orderRepository: OrderRepository,
+    private val geocodingService: GeocodingService,
+    private val paymentService: PaymentService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Transactional(readOnly = true)
-    fun listAll(): List<Order> = orderRepo.findAllWithItems()
+    fun listAll(): List<Order> = orderRepository.findAllWithItems()
 
     @Transactional
     fun create(request: CreateOrderRequest): Order {
@@ -67,12 +67,12 @@ class OrderService(
         val products = productService.findAllByIds(productIds)
 
         // ---- 2. Geocode shipping address ----
-        val coords = geocoding.geocode(request.shippingAddress.line)
+        val coords = geocodingService.geocode(request.shippingAddress.addressLine)
 
         // ---- 3. Find eligible warehouse, closest first ----
         val productToQty = request.items.associate { it.productId to it.quantity }
         val candidates =
-            warehouseSelection.findEligibleOrderedByDistance(
+            warehouseSelectionService.findEligibleOrderedByDistance(
                 productIdsToQuantities = productToQty,
                 shipLat = coords.latitude.toDouble(),
                 shipLng = coords.longitude.toDouble(),
@@ -113,7 +113,7 @@ class OrderService(
                     customerId = customer.id,
                     warehouseId = warehouseId,
                     status = OrderStatus.PENDING_PAYMENT,
-                    shipAddressLine = request.shippingAddress.line,
+                    shipAddressLine = request.shippingAddress.addressLine,
                     shipLatitude = coords.latitude,
                     shipLongitude = coords.longitude,
                     totalAmount = totalAmount,
@@ -131,11 +131,11 @@ class OrderService(
                     ),
                 )
             }
-            orderRepo.save(order)
+            orderRepository.save(order)
 
             // ---- 6. Charge the card ----
             val result =
-                payment.charge(
+                paymentService.charge(
                     PaymentRequest(
                         cardNumber = request.payment.normalizedCardNumber,
                         amount = totalAmount,

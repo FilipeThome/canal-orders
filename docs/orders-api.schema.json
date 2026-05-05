@@ -16,9 +16,9 @@
     "shippingAddress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["line"],
+      "required": ["addressLine"],
       "properties": {
-        "line": {
+        "addressLine": {
           "type": "string",
           "minLength": 1,
           "maxLength": 300

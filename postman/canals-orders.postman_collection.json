@@ -140,7 +140,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": {\n    \"line\": \"123 Market St, San Francisco, CA 94103\"\n  },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 2 },\n    { \"productId\": \"{{secondProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111 1111 1111 1111\"\n  }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": {\n    \"addressLine\": \"123 Market St, San Francisco, CA 94103\"\n  },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 2 },\n    { \"productId\": \"{{secondProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111 1111 1111 1111\"\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -151,7 +151,7 @@
             "orders"
           ]
         },
-        "description": "Creates an order. Expect HTTP 201. Body contains the chosen warehouse, `shippingAddress.line`, the items snapshot (with prices captured at order time), the masked card last-4, and the payment id. Card numbers may include spaces or dashes; the API normalises them to digits."
+        "description": "Creates an order. Expect HTTP 201. Body contains the chosen warehouse, `shippingAddress.addressLine`, the items snapshot (with prices captured at order time), the masked card last-4, and the payment id. Card numbers may include spaces or dashes; the API normalises them to digits."
       }
     },
     {
@@ -171,7 +171,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"500 Replay Lane, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111-1111-1111-1111\" }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"500 Replay Lane, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111-1111-1111-1111\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -201,7 +201,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"DIFFERENT ADDRESS \u2014 should conflict\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 99 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"DIFFERENT ADDRESS \u2014 should conflict\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 99 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -231,7 +231,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"99 Decline Ave, Reno, NV 89501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111111111110002\"\n  }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"99 Decline Ave, Reno, NV 89501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111111111110002\"\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -257,7 +257,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"1 Nowhere Rd, Anchorage, AK 99501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 999999 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"1 Nowhere Rd, Anchorage, AK 99501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 999999 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -283,7 +283,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"\" },\n  \"items\": [],\n  \"payment\": { \"cardNumber\": \"123\" }\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"\" },\n  \"items\": [],\n  \"payment\": { \"cardNumber\": \"123\" }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -309,7 +309,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"Broken JSON\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"Broken JSON\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",
@@ -335,7 +335,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"123 Contract St, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" },\n  \"unexpectedField\": true\n}"
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"123 Contract St, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" },\n  \"unexpectedField\": true\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/orders",

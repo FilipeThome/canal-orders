@@ -32,8 +32,8 @@ import java.security.MessageDigest
  */
 @Service
 class IdempotencyService(
-    private val repo: IdempotencyKeyRepository,
-    private val orderRepo: OrderRepository,
+    private val idempotencyKeyRepository: IdempotencyKeyRepository,
+    private val orderRepository: OrderRepository,
     private val orderService: OrderService,
     private val objectMapper: ObjectMapper,
     transactionManager: PlatformTransactionManager,
@@ -63,7 +63,7 @@ class IdempotencyService(
                 // Claim the key first. saveAndFlush forces the unique-key
                 // conflict to happen before order creation or payment.
                 val record =
-                    repo.saveAndFlush(
+                    idempotencyKeyRepository.saveAndFlush(
                         IdempotencyKey(
                             key = idempotencyKey,
                             requestHash = requestHash,
@@ -94,13 +94,13 @@ class IdempotencyService(
         key: String,
         requestHash: String,
     ): IdempotentResult? {
-        val record = repo.findById(key).orElse(null) ?: return null
+        val record = idempotencyKeyRepository.findById(key).orElse(null) ?: return null
         if (record.requestHash != requestHash) {
             throw IdempotencyConflictException(key)
         }
         val orderId = record.orderId ?: return null
         val order =
-            orderRepo.findByIdWithItems(orderId)
+            orderRepository.findByIdWithItems(orderId)
                 ?: throw IllegalStateException("Cached order ${record.orderId} no longer exists")
         log.debug("Idempotency cache hit for key={}", key)
         return IdempotentResult(record.responseStatus, order)
@@ -114,7 +114,7 @@ class IdempotencyService(
         val canonical =
             mapOf(
                 "customerId" to request.customerId.toString(),
-                "shippingAddress" to mapOf("line" to request.shippingAddress.line.trim()),
+                "shippingAddress" to mapOf("line" to request.shippingAddress.addressLine.trim()),
                 "items" to
                     request.items
                         .sortedBy { it.productId.toString() }
