@@ -371,7 +371,6 @@ canals-orders/
         ├── kotlin/com/canals/orders/
         │   ├── Application.kt
         │   ├── config/
-        │   │   └── RequestIdFilter.kt          — MDC correlation IDs
         │   ├── controller/
         │   │   ├── OrderController.kt          — GET /orders, POST /orders
         │   │   ├── CustomerController.kt       — GET /customers
@@ -433,7 +432,7 @@ What's there:
 - **Pessimistic locking** for stock decrements with deterministic order to prevent deadlocks.
 - **No PAN storage.** Only the last 4 digits and the gateway's `payment_id`.
 - **Graceful shutdown**, **HikariCP tuning**, **non-root container user**, multi-stage Docker for ~110 MB final image.
-- **Structured logs with `X-Request-Id`** correlation, RFC 7807 error envelopes.
+- **Structured logs**, RFC 7807 error envelopes.
 - **Postgres native enum** for `order_status` — type-safe at the DB level.
 
 What was deliberately scoped out (and would be the obvious next steps):
