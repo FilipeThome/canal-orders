@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://canals.example/schemas/orders-api.schema.json",
+  "title": "Canals Orders API JSON Schemas",
+  "type": "object",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "money": {
+      "type": "number",
+      "multipleOf": 0.01,
+      "minimum": 0
+    },
+    "shippingAddress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line"],
+      "properties": {
+        "line": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      }
+    },
+    "createOrderItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productId", "quantity"],
+      "properties": {
+        "productId": { "$ref": "#/$defs/uuid" },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "orderItemResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productId", "quantity", "unitPrice"],
+      "properties": {
+        "productId": { "$ref": "#/$defs/uuid" },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unitPrice": { "$ref": "#/$defs/money" }
+      }
+    },
+    "createOrderRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["customerId", "shippingAddress", "items", "payment"],
+      "properties": {
+        "customerId": { "$ref": "#/$defs/uuid" },
+        "shippingAddress": { "$ref": "#/$defs/shippingAddress" },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/createOrderItem" }
+        },
+        "payment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cardNumber"],
+          "properties": {
+            "cardNumber": {
+              "type": "string",
+              "pattern": "^(?=(?:.*\\d){13,19}$)[0-9 -]+$"
+            }
+          }
+        }
+      }
+    },
+    "orderResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "customerId",
+        "warehouseId",
+        "status",
+        "shippingAddress",
+        "items",
+        "totalAmount",
+        "currency",
+        "createdAt"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "customerId": { "$ref": "#/$defs/uuid" },
+        "warehouseId": { "$ref": "#/$defs/uuid" },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING_PAYMENT", "PAID", "PAYMENT_FAILED", "CANCELLED"]
+        },
+        "shippingAddress": { "$ref": "#/$defs/shippingAddress" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/orderItemResponse" }
+        },
+        "totalAmount": { "$ref": "#/$defs/money" },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "cardLast4": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}$"
+        },
+        "paymentId": {
+          "type": ["string", "null"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "paidAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "failureReason": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  },
+  "properties": {
+    "createOrderRequest": { "$ref": "#/$defs/createOrderRequest" },
+    "orderResponse": { "$ref": "#/$defs/orderResponse" }
+  }
+}

@@ -1,0 +1,69 @@
+spring:
+  application:
+    name: canals-orders
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/canals}
+    username: ${DB_USER:canals}
+    password: ${DB_PASSWORD:canals}
+    hikari:
+      # A real prod system would tune this against load; sane defaults for now.
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 10000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  jpa:
+    hibernate:
+      # validate (not update/create) — Flyway owns the schema, JPA only verifies it matches.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-message: always
+    include-binding-errors: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.canals.orders: DEBUG
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:-}] %logger{36} - %msg%n"
+
+# Mock external services config
+external:
+  payment:
+    # Simulated failure rate to exercise the saga; 0.0 disables.
+    failure-rate: 0.0
+    latency-ms: 50
+  geocoding:
+    # Mock seed; deterministic mapping address → coords.
+    seed: 42

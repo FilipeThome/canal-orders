@@ -1,0 +1,29 @@
+# ==============================================================================
+# Postgres-only compose. Use this when you want to run the app locally from
+# IntelliJ (or `./gradlew bootRun`) and only need a database container.
+#
+#   docker compose -f docker-compose.db.yml up -d
+#
+# The DB is exposed on the host at localhost:5432 so the JVM can connect.
+# ==============================================================================
+services:
+  db:
+    image: postgres:15-alpine     # ~80 MB, much smaller than the default Debian image.
+    container_name: canals-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: canals
+      POSTGRES_USER: canals
+      POSTGRES_PASSWORD: canals
+    ports:
+      - "5432:5432"
+    volumes:
+      - canals_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canals -d canals"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  canals_pgdata:

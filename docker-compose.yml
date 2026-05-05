@@ -1,0 +1,52 @@
+# ==============================================================================
+# Full-stack compose: Postgres + the Spring Boot app, both containerised.
+# Use this to run the entire system without needing Java or Kotlin installed.
+#
+#   docker compose up -d --build
+#
+# The app waits for the DB to be healthy before booting (depends_on with
+# the service_healthy condition).
+#
+# Ports:
+#   * 5432 — Postgres (also exposed to the host in case you want to inspect it)
+#   * 8080 — Spring Boot HTTP
+# ==============================================================================
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: canals-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: canals
+      POSTGRES_USER: canals
+      POSTGRES_PASSWORD: canals
+    ports:
+      - "5432:5432"
+    volumes:
+      - canals_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canals -d canals"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: canals-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Inside the compose network, the DB is reachable as host "db".
+      DB_URL: jdbc:postgresql://db:5432/canals
+      DB_USER: canals
+      DB_PASSWORD: canals
+      SERVER_PORT: 8080
+    ports:
+      - "8080:8080"
+
+volumes:
+  canals_pgdata:

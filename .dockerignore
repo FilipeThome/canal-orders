@@ -1,0 +1,26 @@
+# Build outputs — re-built inside the container.
+build/
+out/
+.gradle/
+*.class
+*.log
+
+# IDE / OS noise
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# VCS
+.git/
+.gitignore
+.github/
+
+# Local docs & collections (don't need them at build time)
+README.md
+docs/
+postman/
+
+# Tests are skipped via -x test in the Dockerfile, but exclude anyway
+src/test/

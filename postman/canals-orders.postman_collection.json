@@ -1,0 +1,353 @@
+﻿{
+  "info": {
+    "name": "Canals Orders API",
+    "description": "Collection for the Canals backend assessment. Compatible with Postman v2.1 and Insomnia (use Insomnia's Import \u2192 From File and pick this JSON).\n\nSet the `baseUrl` collection variable to point at your environment (defaults to http://localhost:8080).\n\nThe explicit JSON contract lives in `docs/orders-api.schema.json`. The app rejects unknown JSON fields and malformed bodies with HTTP 400.\n\n**Quick start:** expand the 'Reference Data' folder, run the three GET requests, copy the UUIDs you need into the environment variables, then fire any order request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "8a1f5b3e-canals-orders-collection"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "REPLACE_ME_AFTER_SEEDING",
+      "type": "string",
+      "description": "Grab from GET /customers \u2014 find Alice Johnson's id."
+    },
+    {
+      "key": "firstProductId",
+      "value": "REPLACE_ME_AFTER_SEEDING",
+      "type": "string",
+      "description": "Grab from GET /products \u2014 find SKU-1001 (Wireless Mouse)."
+    },
+    {
+      "key": "secondProductId",
+      "value": "REPLACE_ME_AFTER_SEEDING",
+      "type": "string",
+      "description": "Grab from GET /products \u2014 find SKU-1002 (Mechanical Keyboard)."
+    }
+  ],
+  "item": [
+    {
+      "name": "Reference Data",
+      "description": "Read-only endpoints that expose the seed data. Use these to look up UUIDs before building order requests.",
+      "item": [
+        {
+          "name": "List customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "customers"
+              ]
+            },
+            "description": "Returns all seeded customers. Copy `id` for Alice Johnson into `{{customerId}}`."
+          }
+        },
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "products"
+              ]
+            },
+            "description": "Returns all 30 seeded products with their UUIDs, SKUs, names, and unit prices. Copy SKU-1001 id into `{{firstProductId}}` and SKU-1002 into `{{secondProductId}}`."
+          }
+        },
+        {
+          "name": "List warehouses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/warehouses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "warehouses"
+              ]
+            },
+            "description": "Returns all 6 seeded US warehouses with their UUIDs, codes, coordinates, and addresses. Useful for cross-referencing the `warehouseId` in order responses."
+          }
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Returns all orders. Useful for inspecting created orders after running the POST /orders requests."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Spring Boot Actuator health endpoint. Returns `{\"status\":\"UP\"}` once Postgres is reachable and Flyway has finished migrating."
+      }
+    },
+    {
+      "name": "Create order \u2014 happy path",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-order-{{$randomUUID}}",
+            "description": "Optional but strongly recommended. Same key + same body returns the cached response (safe retries)."
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": {\n    \"line\": \"123 Market St, San Francisco, CA 94103\"\n  },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 2 },\n    { \"productId\": \"{{secondProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111 1111 1111 1111\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Creates an order. Expect HTTP 201. Body contains the chosen warehouse, `shippingAddress.line`, the items snapshot (with prices captured at order time), the masked card last-4, and the payment id. Card numbers may include spaces or dashes; the API normalises them to digits."
+      }
+    },
+    {
+      "name": "Create order \u2014 idempotency replay",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-replay-key-001",
+            "description": "Reuse this exact value to test idempotency. First call creates the order; subsequent calls return the SAME response without creating a new order or charging the card again."
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"500 Replay Lane, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111-1111-1111-1111\" }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Send this request TWICE. The second call returns identical JSON (same order id, same paymentId). No double-charge. The card number is canonicalised before idempotency hashing, so dashed/spaced equivalents map to the same logical request."
+      }
+    },
+    {
+      "name": "Create order \u2014 idempotency conflict",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-replay-key-001"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"DIFFERENT ADDRESS \u2014 should conflict\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 99 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Run AFTER 'Create order \u2014 idempotency replay' completed at least once. Same Idempotency-Key with a different body \u2192 HTTP 422 with type=idempotency-conflict."
+      }
+    },
+    {
+      "name": "Create order \u2014 payment declined",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-decline-{{$randomUUID}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"99 Decline Ave, Reno, NV 89501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": {\n    \"cardNumber\": \"4111111111110002\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Cards ending in 0002 are forced declines (Stripe-style). Expect HTTP 402 Payment Required. The transaction rolls back: no order persisted, no stock decremented."
+      }
+    },
+    {
+      "name": "Create order \u2014 no eligible warehouse",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"1 Nowhere Rd, Anchorage, AK 99501\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 999999 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Quantity exceeds any single warehouse's stock \u2192 HTTP 422 with type=no-eligible-warehouse."
+      }
+    },
+    {
+      "name": "Create order \u2014 validation error",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"\" },\n  \"items\": [],\n  \"payment\": { \"cardNumber\": \"123\" }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Bean Validation kicks in: blank address, empty items, malformed card number. Expect HTTP 400 with type=validation-error and a per-field 'errors' map."
+      }
+    },
+    {
+      "name": "Create order - invalid JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"Broken JSON\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Malformed JSON is rejected before Bean Validation. Expect HTTP 400 with type=invalid-json."
+      }
+    },
+    {
+      "name": "Create order - unknown field",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"line\": \"123 Contract St, Austin, TX 78701\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" },\n  \"unexpectedField\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "Unknown fields are rejected to keep runtime behaviour aligned with docs/orders-api.schema.json. Expect HTTP 400 with type=invalid-json."
+      }
+    }
+  ]
+}
