@@ -27,6 +27,12 @@ dependencies {
     implementation("org.postgresql:postgresql")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("io.mockk:mockk:1.13.10")
+    testImplementation("com.ninja-squad:springmockk:4.0.2")
+    testImplementation("io.zonky.test:embedded-database-spring-test:2.6.0")
+    testImplementation("io.zonky.test:embedded-postgres:2.1.0")
 }
 
 kotlin {
