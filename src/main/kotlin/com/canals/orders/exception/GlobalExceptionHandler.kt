@@ -66,7 +66,13 @@ class GlobalExceptionHandler {
                 ),
             )
 
-    @ExceptionHandler(CustomerNotFoundException::class, ProductsNotFoundException::class)
+    @ExceptionHandler(
+        CustomerNotFoundException::class,
+        ProductsNotFoundException::class,
+        ProductNotFoundException::class,
+        WarehouseNotFoundException::class,
+        OrderNotFoundException::class,
+    )
     fun onNotFound(ex: DomainException): ResponseEntity<ProblemDetail> =
         ResponseEntity
             .status(HttpStatus.NOT_FOUND)

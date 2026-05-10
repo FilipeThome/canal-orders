@@ -4,8 +4,10 @@ import com.canals.orders.domain.Order
 import com.canals.orders.domain.OrderItem
 import com.canals.orders.domain.OrderStatus
 import com.canals.orders.dto.CreateOrderRequest
+import com.canals.orders.dto.request.UpdateOrderRequest
 import com.canals.orders.exception.DuplicateProductInOrderException
 import com.canals.orders.exception.NoEligibleWarehouseException
+import com.canals.orders.exception.OrderNotFoundException
 import com.canals.orders.exception.PaymentFailedException
 import com.canals.orders.external.GeocodingService
 import com.canals.orders.external.PaymentRequest
@@ -54,6 +56,26 @@ class OrderService(
 
     @Transactional(readOnly = true)
     fun listAll(): List<Order> = orderRepository.findAllWithItems()
+
+    @Transactional(readOnly = true)
+    fun getById(id: UUID): Order = orderRepository.findByIdWithItems(id) ?: throw OrderNotFoundException(id)
+
+    @Transactional
+    fun update(
+        id: UUID,
+        request: UpdateOrderRequest,
+    ): Order {
+        val order = getById(id)
+        order.status = request.status
+        order.updatedAt = OffsetDateTime.now()
+        return orderRepository.save(order)
+    }
+
+    @Transactional
+    fun delete(id: UUID) {
+        if (!orderRepository.existsById(id)) throw OrderNotFoundException(id)
+        orderRepository.deleteById(id)
+    }
 
     @Transactional
     fun create(request: CreateOrderRequest): Order {

@@ -27,3 +27,12 @@ class DuplicateProductInOrderException(productIds: Collection<UUID>) :
         "Order contains duplicate product IDs (combine quantities into one line item): " +
             productIds.joinToString(),
     )
+
+class ProductNotFoundException(id: UUID) :
+    DomainException("Product $id not found")
+
+class WarehouseNotFoundException(id: UUID) :
+    DomainException("Warehouse $id not found")
+
+class OrderNotFoundException(id: UUID) :
+    DomainException("Order $id not found")
