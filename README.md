@@ -13,14 +13,15 @@ Built with **Kotlin 1.9 + JDK 21 + Spring Boot 3.2 + PostgreSQL 15 + Flyway**.
 3. [Order creation pipeline](#order-creation-pipeline)
 4. [Concurrency & race-condition handling](#concurrency--race-condition-handling)
 5. [Idempotency](#idempotency)
-6. [JSON API contract](#json-api-contract)
-7. [Running the service](#running-the-service)
+6. [REST API reference](#rest-api-reference)
+7. [JSON API contract](#json-api-contract)
+8. [Running the service](#running-the-service)
    - [Option A — Everything in Docker](#option-a--everything-in-docker)
    - [Option B — Postgres in Docker, app in IntelliJ](#option-b--postgres-in-docker-app-in-intellij)
-8. [Using the API (Postman / Insomnia)](#using-the-api-postman--insomnia)
-9. [Manual smoke test with curl](#manual-smoke-test-with-curl)
-10. [Project layout](#project-layout)
-11. [Production-readiness notes](#production-readiness-notes)
+9. [Using the API (Postman / Insomnia)](#using-the-api-postman--insomnia)
+10. [Manual smoke test with curl](#manual-smoke-test-with-curl)
+11. [Project layout](#project-layout)
+12. [Production-readiness notes](#production-readiness-notes)
 
 ---
 
@@ -34,10 +35,10 @@ HTTP Requests
         v
 +-----------------------------------------------+
 | Controllers  (controller/)                     |
-|  OrderController    GET+POST /orders           |
-|  CustomerController GET /customers             |
-|  ProductController  GET /products              |
-|  WarehouseController GET /warehouses           |
+|  OrderController    GET+POST+PUT+DELETE /orders|
+|  CustomerController full CRUD /customers       |
+|  ProductController  full CRUD /products        |
+|  WarehouseController full CRUD /warehouses     |
 +-----------------------------------------------+
         | calls
         v
@@ -140,6 +141,52 @@ The `Idempotency-Key` header (max 120 chars, opaque string) is **required** on e
 | Missing header                                   | HTTP 400 `missing-header`.                                       |
 
 The "same body" check is order-insensitive: we canonicalise the request (sort items by `productId`, normalise the address line, normalise card numbers to digits only, strip ordering of JSON fields) and SHA-256 the canonical form. This means a UI that re-orders items in its array between retries is still treated as identical.
+
+---
+
+## REST API reference
+
+All endpoints return JSON. Error responses follow [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807).
+
+### Customers
+
+| Method | Path | Status | Notes |
+| ------ | ---- | ------ | ----- |
+| `GET` | `/customers` | 200 | List all customers. |
+| `GET` | `/customers/{id}` | 200 / 404 | Single customer by UUID. |
+| `POST` | `/customers` | 201 | Create customer. Body: `email`, `fullName`. |
+| `PUT` | `/customers/{id}` | 200 / 404 | Replace all fields. Body: `email`, `fullName`. |
+| `DELETE` | `/customers/{id}` | 204 / 404 | Delete customer. |
+
+### Products
+
+| Method | Path | Status | Notes |
+| ------ | ---- | ------ | ----- |
+| `GET` | `/products` | 200 | List all products. |
+| `GET` | `/products/{id}` | 200 / 404 | Single product by UUID. |
+| `POST` | `/products` | 201 | Create product. Body: `sku`, `name`, `unitPrice`. |
+| `PUT` | `/products/{id}` | 200 / 404 | Replace all fields. Body: `sku`, `name`, `unitPrice`. |
+| `DELETE` | `/products/{id}` | 204 / 404 | Delete product. |
+
+### Warehouses
+
+| Method | Path | Status | Notes |
+| ------ | ---- | ------ | ----- |
+| `GET` | `/warehouses` | 200 | List all warehouses. |
+| `GET` | `/warehouses/{id}` | 200 / 404 | Single warehouse by UUID. |
+| `POST` | `/warehouses` | 201 | Create warehouse. Body: `code`, `name`, `latitude`, `longitude`, `address`. |
+| `PUT` | `/warehouses/{id}` | 200 / 404 | Replace all fields. Same body shape as POST. |
+| `DELETE` | `/warehouses/{id}` | 204 / 404 | Delete warehouse. |
+
+### Orders
+
+| Method | Path | Status | Notes |
+| ------ | ---- | ------ | ----- |
+| `GET` | `/orders` | 200 | List all orders. |
+| `GET` | `/orders/{id}` | 200 / 404 | Single order by UUID. |
+| `POST` | `/orders` | 201 | Create order. Requires `Idempotency-Key` header. See [JSON API contract](#json-api-contract). |
+| `PUT` | `/orders/{id}` | 200 / 404 | Update order status. Body: `{ "status": "PENDING_PAYMENT" \| "PAID" \| "PAYMENT_FAILED" \| "CANCELLED" }`. |
+| `DELETE` | `/orders/{id}` | 204 / 404 | Delete order. |
 
 ---
 
@@ -292,12 +339,12 @@ A ready-to-use collection lives in [`postman/`](./postman/):
 ### Importing into Insomnia
 
 1. **Application menu → Import** → **From File** → pick `canals-orders.postman_collection.json`. Insomnia handles the Postman v2.1 schema natively.
-2. The collection variables (`baseUrl`, `customerIdAlice`, …) are imported too. Edit them under the request group's "Manage Environments" panel.
+2. The collection variables (`baseUrl`, `customerId`, `firstProductId`, `secondProductId`, `warehouseId`, `orderId`) are imported too. Edit them under the request group's "Manage Environments" panel.
 3. Hit any request.
 
 ### Bootstrapping the IDs
 
-The collection uses `{{customerIdAlice}}`, `{{productIdMouse}}`, and `{{productIdKeyboard}}` placeholders that need to be filled with the UUIDs Postgres generated during seeding. Use the reference endpoints:
+The collection uses `{{customerId}}`, `{{firstProductId}}`, `{{secondProductId}}`, `{{warehouseId}}`, and `{{orderId}}` placeholders. Fill them with UUIDs from the seed data using the reference endpoints:
 
 ```bash
 # List all customers — find Alice's id
@@ -310,14 +357,34 @@ curl http://localhost:8080/products
 curl http://localhost:8080/warehouses
 ```
 
-Copy the `id` values into the Postman/Insomnia environment variables.
+Copy the `id` values into the Postman/Insomnia environment variables (`customerId`, `firstProductId`, `secondProductId`, `warehouseId`). Set `orderId` after creating your first order.
 
 ### What's in the collection
+
+The collection is organised into resource folders plus a top-level health check.
+
+**Health check**
 
 | Request | What it demonstrates |
 | ------- | -------------------- |
 | `Health check` | Actuator probe — confirms DB connection and Flyway state. |
+
+**Customers / Products / Warehouses** (each folder contains the same set)
+
+| Request | What it demonstrates |
+| ------- | -------------------- |
+| `List <resource>` | `GET /<resource>` — returns all records. Use to copy UUIDs into environment variables. |
+| `Get <resource> by id` | `GET /<resource>/{id}` — single record, 404 on missing. |
+| `Create <resource>` | `POST /<resource>` → 201 with the created resource. |
+| `Update <resource>` | `PUT /<resource>/{id}` — full replacement, 404 on missing. |
+| `Delete <resource>` | `DELETE /<resource>/{id}` → 204, 404 on missing. |
+
+**Orders**
+
+| Request | What it demonstrates |
+| ------- | -------------------- |
 | `List orders` | `GET /orders` — inspect all persisted orders. |
+| `Get order by id` | `GET /orders/{id}` — single order, 404 on missing. |
 | `Create order — happy path` | The standard 201 flow. |
 | `Create order — idempotency replay` | Send it twice with the same key; second call returns cached body. |
 | `Create order — idempotency conflict` | Same key, different body → 422. |
@@ -327,6 +394,8 @@ Copy the `id` values into the Postman/Insomnia environment variables.
 | `Create order — invalid JSON` | Malformed JSON → 400 `invalid-json`. |
 | `Create order — unknown field` | Extra JSON properties → 400 `invalid-json`. |
 | `Create order — missing Idempotency-Key` | No header → 400 `missing-header`. |
+| `Update order status` | `PUT /orders/{id}` — change status to `CANCELLED` etc. |
+| `Delete order` | `DELETE /orders/{id}` → 204. |
 
 ---
 
