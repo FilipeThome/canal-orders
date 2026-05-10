@@ -1,6 +1,5 @@
 package com.canals.orders.service
 
-import com.canals.orders.domain.IdempotencyKey
 import com.canals.orders.domain.Order
 import com.canals.orders.dto.CreateOrderRequest
 import com.canals.orders.exception.IdempotencyConflictException
@@ -10,9 +9,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
-import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.support.TransactionTemplate
 import java.security.MessageDigest
+
+data class IdempotentResult(val statusCode: Int, val body: Order)
 
 /**
  * Idempotency for POST /orders.
@@ -21,7 +20,7 @@ import java.security.MessageDigest
  *   * Header `Idempotency-Key: <opaque string up to 120 chars>`.
  *   * Same key + same body → return the cached response.
  *   * Same key + different body → 422 idempotency-conflict.
- *   * Missing key → request is processed without idempotency guarantees.
+ *   * Missing key → 400 Bad Request.
  *
  * Concurrency:
  *   * We insert and flush the idempotency row before creating the order. The
@@ -34,51 +33,22 @@ import java.security.MessageDigest
 class IdempotencyService(
     private val idempotencyKeyRepository: IdempotencyKeyRepository,
     private val orderRepository: OrderRepository,
-    private val orderService: OrderService,
+    private val idempotencyOrderCreatorService: IdempotencyOrderCreatorService,
     private val objectMapper: ObjectMapper,
-    transactionManager: PlatformTransactionManager,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val transactionTemplate = TransactionTemplate(transactionManager)
-
-    data class IdempotentResult(val statusCode: Int, val body: Order)
 
     fun createOrder(
-        idempotencyKey: String?,
+        idempotencyKey: String,
         request: CreateOrderRequest,
     ): IdempotentResult {
-        if (idempotencyKey.isNullOrBlank()) {
-            // No key — process directly. The caller accepts that a retry
-            // could double-charge.
-            return IdempotentResult(201, orderService.create(request))
-        }
-
         val requestHash = sha256(canonicaliseRequest(request))
 
         // Fast path: cached response exists.
         readCache(idempotencyKey, requestHash)?.let { return it }
 
         try {
-            return transactionTemplate.execute {
-                // Claim the key first. saveAndFlush forces the unique-key
-                // conflict to happen before order creation or payment.
-                val record =
-                    idempotencyKeyRepository.saveAndFlush(
-                        IdempotencyKey(
-                            key = idempotencyKey,
-                            requestHash = requestHash,
-                            responseStatus = 0,
-                            responseBody = "",
-                        ),
-                    )
-
-                val order = orderService.create(request)
-                record.responseStatus = 201
-                record.responseBody = order.id.toString()
-                record.orderId = order.id
-
-                IdempotentResult(201, order)
-            }!!
+            return idempotencyOrderCreatorService.create(idempotencyKey, requestHash, request)
         } catch (ex: DataIntegrityViolationException) {
             // Lost the unique-key race before creating an order. Return the
             // cached canonical response from the winner.

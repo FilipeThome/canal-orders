@@ -61,4 +61,14 @@ class MockPaymentServiceTest {
 
         assertThat(result.paymentId).isNotBlank()
     }
+
+    @Test
+    fun `simulated latency does not prevent successful charge`() {
+        val withLatency = MockPaymentService(failureRate = 0.0, latencyMs = 1L)
+        val request = PaymentRequest("4111111111111111", BigDecimal("5.00"), "USD", "latency test")
+
+        val result = withLatency.charge(request)
+
+        assertThat(result).isInstanceOf(PaymentResult.Approved::class.java)
+    }
 }

@@ -8,6 +8,7 @@ import com.canals.orders.exception.GlobalExceptionHandler
 import com.canals.orders.exception.NoEligibleWarehouseException
 import com.canals.orders.exception.PaymentFailedException
 import com.canals.orders.service.IdempotencyService
+import com.canals.orders.service.IdempotentResult
 import com.canals.orders.service.OrderService
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.ninjasquad.springmockk.MockkBean
@@ -87,26 +88,19 @@ class OrderControllerTest {
     }
 
     @Test
-    fun `POST orders with valid body returns 201`() {
-        val customerId = UUID.randomUUID()
-        val productId = UUID.randomUUID()
-        val order = mockOrder()
-        every { idempotencyService.createOrder(null, any()) } returns IdempotencyService.IdempotentResult(201, order)
-
+    fun `POST orders without Idempotency-Key header returns 400`() {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
-            content = objectMapper.writeValueAsString(validBody(customerId, productId))
+            content = objectMapper.writeValueAsString(validBody())
         }.andExpect {
-            status { isCreated() }
-            jsonPath("$.id") { value(order.id.toString()) }
-            jsonPath("$.status") { value("PAID") }
+            status { isBadRequest() }
         }
     }
 
     @Test
     fun `POST orders with Idempotency-Key header forwards key to service`() {
         val order = mockOrder()
-        every { idempotencyService.createOrder("my-key-123", any()) } returns IdempotencyService.IdempotentResult(201, order)
+        every { idempotencyService.createOrder("my-key-123", any()) } returns IdempotentResult(201, order)
 
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
@@ -129,6 +123,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(body)
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isBadRequest() }
         }
@@ -147,6 +142,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(body)
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isBadRequest() }
         }
@@ -162,6 +158,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(body)
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isBadRequest() }
         }
@@ -172,6 +169,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = "{ not valid json }"
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isBadRequest() }
         }
@@ -184,6 +182,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(validBody())
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isNotFound() }
         }
@@ -196,6 +195,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(validBody())
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isPaymentRequired() }
         }
@@ -208,6 +208,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(validBody())
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isUnprocessableEntity() }
         }
@@ -220,6 +221,7 @@ class OrderControllerTest {
         mockMvc.post("/orders") {
             contentType = MediaType.APPLICATION_JSON
             content = objectMapper.writeValueAsString(validBody())
+            header("Idempotency-Key", "test-key")
         }.andExpect {
             status { isPaymentRequired() }
             jsonPath("$.type") { isString() }

@@ -7,6 +7,7 @@ import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.MethodArgumentNotValidException
+import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.servlet.resource.NoResourceFoundException
@@ -46,6 +47,12 @@ class GlobalExceptionHandler {
         pd.setProperty("errors", errors)
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd)
     }
+
+    @ExceptionHandler(MissingRequestHeaderException::class)
+    fun onMissingHeader(ex: MissingRequestHeaderException): ResponseEntity<ProblemDetail> =
+        ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(problem(HttpStatus.BAD_REQUEST, "Required header '${ex.headerName}' is missing", "missing-header"))
 
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun onMalformedJson(ex: HttpMessageNotReadableException): ResponseEntity<ProblemDetail> =

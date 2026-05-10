@@ -43,7 +43,8 @@ HTTP Requests
         v
 +-----------------------------------------------+
 | Services  (service/)                           |
-|  IdempotencyService  — key claim before charge |
+|  IdempotencyService          — key claim + cache lookup    |
+|  IdempotencyOrderCreatorService — transactional order create |
 |  OrderService        — order transaction       |
 |  CustomerService     — customer lookup         |
 |  ProductService      — product lookup          |
@@ -129,14 +130,14 @@ Solved with `PESSIMISTIC_WRITE` on `warehouse_stock` rows for the chosen warehou
 
 ## Idempotency
 
-The endpoint accepts an optional `Idempotency-Key` header (max 120 chars, opaque string). Behaviour mirrors Stripe and AWS:
+The `Idempotency-Key` header (max 120 chars, opaque string) is **required** on every `POST /orders` request. Behaviour mirrors Stripe and AWS:
 
 | Scenario                                         | Result                                                           |
 | ------------------------------------------------ | ---------------------------------------------------------------- |
 | First call with a key                            | Claim the key, process normally, cache the response under that key. |
 | Repeat call, same key, **same body**             | Return the cached response. No new order, no new charge.         |
 | Repeat call, same key, **different body**        | HTTP 422 `idempotency-conflict`.                                 |
-| Call without a key                               | Processed best-effort. Network retries may double-charge.        |
+| Missing header                                   | HTTP 400 `missing-header`.                                       |
 
 The "same body" check is order-insensitive: we canonicalise the request (sort items by `productId`, normalise the address line, normalise card numbers to digits only, strip ordering of JSON fields) and SHA-256 the canonical form. This means a UI that re-orders items in its array between retries is still treated as identical.
 
@@ -325,6 +326,7 @@ Copy the `id` values into the Postman/Insomnia environment variables.
 | `Create order — validation error` | Empty/invalid fields → 400 with per-field error map. |
 | `Create order — invalid JSON` | Malformed JSON → 400 `invalid-json`. |
 | `Create order — unknown field` | Extra JSON properties → 400 `invalid-json`. |
+| `Create order — missing Idempotency-Key` | No header → 400 `missing-header`. |
 
 ---
 
@@ -411,8 +413,9 @@ canals-orders/
         │       ├── WarehouseService.kt         — Warehouse listing
         │       ├── WarehouseStockService.kt    — Pessimistic lock + stock decrement
         │       ├── WarehouseSelectionService.kt — Eligible warehouse lookup + Haversine
-        │       ├── OrderService.kt             — Order listing + core order transaction
-        │       └── IdempotencyService.kt       — Key claim + cached order responses
+        │       ├── OrderService.kt                  — Order listing + core order transaction
+        │       ├── IdempotencyService.kt            — Key claim + cache lookup (required header)
+        │       └── IdempotencyOrderCreatorService.kt — @Transactional order creation boundary
         └── resources/
             ├── application.yml                 — DB config + strict unknown-field JSON handling
             └── db/migration/
@@ -440,6 +443,6 @@ What was deliberately scoped out (and would be the obvious next steps):
 - **PostGIS** for spatial indexing — nice-to-have but the warehouse table will not realistically reach a size where the Haversine computation in `WarehouseSelectionService` becomes a bottleneck.
 - **Outbox pattern** for the `Payment` call — production systems decouple "order persisted" from "card charged" via an outbox table + worker, so a payment-gateway timeout can't leave inconsistent state. The current implementation is acceptable because we charge inside the same Tx and roll back on decline; a network timeout AFTER the gateway charged would still leave a problematic gap. Mitigation: idempotent retries from the client + payment-side reconciliation job.
 - **Authentication / authorization** — explicitly excluded by the spec.
-- **Automated tests** — also excluded by the spec; the assessment instructions say tests aren't required.
+- **Contract / load / mutation testing** — unit and integration tests are in place with JaCoCo coverage enforcement (≥ 95% instruction, ≥ 80% line, ≥ 70% branch); property-based and contract tests would be the obvious next layer.
 - **Inventory release on payment failure across separate transactions** — the current "rollback the whole Tx" approach works for the synchronous gateway but a fully async saga would track stock reservations as a first-class entity with a TTL.
 - **Rate limiting / circuit breaker** on the payment client (Resilience4j) — would be wired in if the gateway were real.

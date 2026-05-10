@@ -1,7 +1,7 @@
 ﻿{
   "info": {
     "name": "Canals Orders API",
-    "description": "Collection for the Canals backend assessment. Compatible with Postman v2.1 and Insomnia (use Insomnia's Import \u2192 From File and pick this JSON).\n\nSet the `baseUrl` collection variable to point at your environment (defaults to http://localhost:8080).\n\nThe explicit JSON contract lives in `docs/orders-api.schema.json`. The app rejects unknown JSON fields and malformed bodies with HTTP 400.\n\n**Quick start:** expand the 'Reference Data' folder, run the three GET requests, copy the UUIDs you need into the environment variables, then fire any order request.",
+    "description": "Collection for the Canals backend assessment. Compatible with Postman v2.1 and Insomnia (use Insomnia's Import \u2192 From File and pick this JSON).\n\nSet the `baseUrl` collection variable to point at your environment (defaults to http://localhost:8080).\n\nThe explicit JSON contract lives in `docs/orders-api.schema.json`. The app rejects unknown JSON fields and malformed bodies with HTTP 400.\n\n**Idempotency-Key is required** on every POST /orders request. Omitting it returns HTTP 400. Use a UUID (or any opaque string up to 120 chars). Same key + same body returns the cached response; same key + different body returns HTTP 422.\n\n**Quick start:** expand the 'Reference Data' folder, run the three GET requests, copy the UUIDs you need into the environment variables, then fire any order request.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "8a1f5b3e-canals-orders-collection"
   },
@@ -135,7 +135,7 @@
           {
             "key": "Idempotency-Key",
             "value": "demo-order-{{$randomUUID}}",
-            "description": "Optional but strongly recommended. Same key + same body returns the cached response (safe retries)."
+            "description": "Required. Omitting this header returns HTTP 400. Same key + same body returns the cached response (safe retries). Use a UUID or any opaque string up to 120 chars."
           }
         ],
         "body": {
@@ -253,6 +253,10 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-no-warehouse-{{$randomUUID}}"
           }
         ],
         "body": {
@@ -279,6 +283,10 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-validation-{{$randomUUID}}"
           }
         ],
         "body": {
@@ -305,6 +313,10 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-invalid-json-{{$randomUUID}}"
           }
         ],
         "body": {
@@ -324,6 +336,32 @@
       }
     },
     {
+      "name": "Create order — missing Idempotency-Key",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": { \"addressLine\": \"123 Market St, San Francisco, CA 94103\" },\n  \"items\": [\n    { \"productId\": \"{{firstProductId}}\", \"quantity\": 1 }\n  ],\n  \"payment\": { \"cardNumber\": \"4111111111111111\" }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        },
+        "description": "No Idempotency-Key header → HTTP 400 with type=missing-header. The header is required on every POST /orders request."
+      }
+    },
+    {
       "name": "Create order - unknown field",
       "request": {
         "method": "POST",
@@ -331,6 +369,10 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "demo-unknown-field-{{$randomUUID}}"
           }
         ],
         "body": {

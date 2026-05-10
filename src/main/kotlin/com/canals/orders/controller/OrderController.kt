@@ -35,9 +35,9 @@ class OrderController(
      */
     @PostMapping
     fun create(
-        @RequestHeader(name = "Idempotency-Key", required = false)
+        @RequestHeader(name = "Idempotency-Key", required = true)
         @Size(max = 120, message = "Idempotency-Key must be at most 120 characters")
-        idempotencyKey: String?,
+        idempotencyKey: String,
         @Valid @RequestBody
         request: CreateOrderRequest,
     ): ResponseEntity<OrderResponse> {

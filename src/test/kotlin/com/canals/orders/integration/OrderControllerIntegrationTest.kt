@@ -40,11 +40,12 @@ class OrderControllerIntegrationTest : AbstractIntegrationTest() {
 
     private fun postOrder(
         body: Any,
-        idempotencyKey: String? = null,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        includeIdempotencyKey: Boolean = true,
     ): ResponseEntity<Map<String, Any>> {
         val headers = HttpHeaders()
         headers.contentType = MediaType.APPLICATION_JSON
-        idempotencyKey?.let { headers.set("Idempotency-Key", it) }
+        if (includeIdempotencyKey) headers.set("Idempotency-Key", idempotencyKey)
         return restTemplate.exchange(
             "/orders",
             HttpMethod.POST,
@@ -190,6 +191,16 @@ class OrderControllerIntegrationTest : AbstractIntegrationTest() {
         @Suppress("UNCHECKED_CAST")
         val ids = (listResponse.body as List<Map<String, Any>>).map { it["id"].toString() }
         assertThat(ids).contains(createdId)
+    }
+
+    @Test
+    fun `POST orders without Idempotency-Key header returns 400`() {
+        val customer = customerRepository.findAll().first()
+        val product = productRepository.findAll().first()
+
+        val response = postOrder(validOrderBody(customer.id, product.id), includeIdempotencyKey = false)
+
+        assertThat(response.statusCode).isEqualTo(HttpStatus.BAD_REQUEST)
     }
 
     @Test
