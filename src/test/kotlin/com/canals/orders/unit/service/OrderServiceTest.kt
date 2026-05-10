@@ -1,5 +1,6 @@
 package com.canals.orders.unit.service
 
+import com.canals.orders.domain.Order
 import com.canals.orders.domain.OrderStatus
 import com.canals.orders.domain.Warehouse
 import com.canals.orders.domain.WarehouseStock
@@ -8,8 +9,10 @@ import com.canals.orders.dto.AddressDto
 import com.canals.orders.dto.CreateOrderRequest
 import com.canals.orders.dto.OrderItemDto
 import com.canals.orders.dto.PaymentDto
+import com.canals.orders.dto.request.UpdateOrderRequest
 import com.canals.orders.exception.DuplicateProductInOrderException
 import com.canals.orders.exception.NoEligibleWarehouseException
+import com.canals.orders.exception.OrderNotFoundException
 import com.canals.orders.exception.PaymentFailedException
 import com.canals.orders.external.GeoCoordinates
 import com.canals.orders.external.GeocodingService
@@ -32,6 +35,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
+import java.time.OffsetDateTime
 import java.util.UUID
 
 class OrderServiceTest {
@@ -64,6 +68,22 @@ class OrderServiceTest {
             shippingAddress = AddressDto("123 Main St, New York, NY"),
             items = items,
             payment = PaymentDto("4111111111111111"),
+        )
+
+    private fun mockOrder(id: UUID = UUID.randomUUID()) =
+        Order(
+            id = id,
+            customerId = customerId,
+            warehouseId = warehouseId,
+            status = OrderStatus.PAID,
+            shipAddressLine = "123 Main St",
+            shipLatitude = BigDecimal("40.712776"),
+            shipLongitude = BigDecimal("-74.005974"),
+            totalAmount = BigDecimal("99.99"),
+            currency = "USD",
+            paymentId = "pay_test123",
+            cardLast4 = "1111",
+            createdAt = OffsetDateTime.now(),
         )
 
     private fun setupHappyPath() {
@@ -286,5 +306,70 @@ class OrderServiceTest {
 
         assertThat(result).isEmpty()
         verify(exactly = 1) { orderRepository.findAllWithItems() }
+    }
+
+    @Test
+    fun `getById returns order when found`() {
+        val id = UUID.randomUUID()
+        val order = mockOrder(id)
+        every { orderRepository.findByIdWithItems(id) } returns order
+
+        assertThat(service.getById(id)).isEqualTo(order)
+        verify(exactly = 1) { orderRepository.findByIdWithItems(id) }
+    }
+
+    @Test
+    fun `getById throws OrderNotFoundException when order does not exist`() {
+        val id = UUID.randomUUID()
+        every { orderRepository.findByIdWithItems(id) } returns null
+
+        assertThatThrownBy { service.getById(id) }
+            .isInstanceOf(OrderNotFoundException::class.java)
+            .hasMessageContaining(id.toString())
+    }
+
+    @Test
+    fun `update changes status and saves order`() {
+        val id = UUID.randomUUID()
+        val order = mockOrder(id)
+        val request = UpdateOrderRequest(status = OrderStatus.CANCELLED)
+        every { orderRepository.findByIdWithItems(id) } returns order
+        every { orderRepository.save(any()) } answers { firstArg() }
+
+        val result = service.update(id, request)
+
+        assertThat(result.status).isEqualTo(OrderStatus.CANCELLED)
+        verify(exactly = 1) { orderRepository.save(order) }
+    }
+
+    @Test
+    fun `update throws OrderNotFoundException when order does not exist`() {
+        val id = UUID.randomUUID()
+        val request = UpdateOrderRequest(status = OrderStatus.CANCELLED)
+        every { orderRepository.findByIdWithItems(id) } returns null
+
+        assertThatThrownBy { service.update(id, request) }
+            .isInstanceOf(OrderNotFoundException::class.java)
+    }
+
+    @Test
+    fun `delete calls deleteById when order exists`() {
+        val id = UUID.randomUUID()
+        every { orderRepository.existsById(id) } returns true
+        every { orderRepository.deleteById(id) } just runs
+
+        service.delete(id)
+
+        verify(exactly = 1) { orderRepository.deleteById(id) }
+    }
+
+    @Test
+    fun `delete throws OrderNotFoundException when order does not exist`() {
+        val id = UUID.randomUUID()
+        every { orderRepository.existsById(id) } returns false
+
+        assertThatThrownBy { service.delete(id) }
+            .isInstanceOf(OrderNotFoundException::class.java)
+            .hasMessageContaining(id.toString())
     }
 }

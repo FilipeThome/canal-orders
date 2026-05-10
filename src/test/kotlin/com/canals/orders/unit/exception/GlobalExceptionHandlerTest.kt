@@ -5,8 +5,11 @@ import com.canals.orders.exception.DuplicateProductInOrderException
 import com.canals.orders.exception.GlobalExceptionHandler
 import com.canals.orders.exception.IdempotencyConflictException
 import com.canals.orders.exception.NoEligibleWarehouseException
+import com.canals.orders.exception.OrderNotFoundException
 import com.canals.orders.exception.PaymentFailedException
+import com.canals.orders.exception.ProductNotFoundException
 import com.canals.orders.exception.ProductsNotFoundException
+import com.canals.orders.exception.WarehouseNotFoundException
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
@@ -29,6 +32,33 @@ class GlobalExceptionHandlerTest {
         val ex = ProductsNotFoundException(listOf(UUID.randomUUID(), UUID.randomUUID()))
         val response = handler.onNotFound(ex)
         assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND)
+    }
+
+    @Test
+    fun `product not found maps to 404`() {
+        val id = UUID.randomUUID()
+        val ex = ProductNotFoundException(id)
+        val response = handler.onNotFound(ex)
+        assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND)
+        assertThat(response.body?.detail).contains(id.toString())
+    }
+
+    @Test
+    fun `warehouse not found maps to 404`() {
+        val id = UUID.randomUUID()
+        val ex = WarehouseNotFoundException(id)
+        val response = handler.onNotFound(ex)
+        assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND)
+        assertThat(response.body?.detail).contains(id.toString())
+    }
+
+    @Test
+    fun `order not found maps to 404`() {
+        val id = UUID.randomUUID()
+        val ex = OrderNotFoundException(id)
+        val response = handler.onNotFound(ex)
+        assertThat(response.statusCode).isEqualTo(HttpStatus.NOT_FOUND)
+        assertThat(response.body?.detail).contains(id.toString())
     }
 
     @Test

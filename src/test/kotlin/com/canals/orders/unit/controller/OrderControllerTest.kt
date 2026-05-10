@@ -6,6 +6,7 @@ import com.canals.orders.domain.OrderStatus
 import com.canals.orders.exception.CustomerNotFoundException
 import com.canals.orders.exception.GlobalExceptionHandler
 import com.canals.orders.exception.NoEligibleWarehouseException
+import com.canals.orders.exception.OrderNotFoundException
 import com.canals.orders.exception.PaymentFailedException
 import com.canals.orders.service.IdempotencyService
 import com.canals.orders.service.IdempotentResult
@@ -13,14 +14,18 @@ import com.canals.orders.service.OrderService
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.ninjasquad.springmockk.MockkBean
 import io.mockk.every
+import io.mockk.just
+import io.mockk.runs
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.put
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -84,6 +89,29 @@ class OrderControllerTest {
             status { isOk() }
             jsonPath("$[0].id") { value(order.id.toString()) }
             jsonPath("$[0].status") { value("PAID") }
+        }
+    }
+
+    @Test
+    fun `GET orders by id returns 200 with response`() {
+        val id = UUID.randomUUID()
+        val order = mockOrder(id)
+        every { orderService.getById(id) } returns order
+
+        mockMvc.get("/orders/$id").andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(id.toString()) }
+            jsonPath("$.status") { value("PAID") }
+        }
+    }
+
+    @Test
+    fun `GET orders by id returns 404 when not found`() {
+        val id = UUID.randomUUID()
+        every { orderService.getById(id) } throws OrderNotFoundException(id)
+
+        mockMvc.get("/orders/$id").andExpect {
+            status { isNotFound() }
         }
     }
 
@@ -227,6 +255,54 @@ class OrderControllerTest {
             jsonPath("$.type") { isString() }
             jsonPath("$.title") { isString() }
             jsonPath("$.detail") { isString() }
+        }
+    }
+
+    @Test
+    fun `PUT orders returns 200 with updated order`() {
+        val id = UUID.randomUUID()
+        val order = mockOrder(id).also { it.status = OrderStatus.CANCELLED }
+        every { orderService.update(any(), any()) } returns order
+
+        mockMvc.put("/orders/$id") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("status" to "CANCELLED"))
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(id.toString()) }
+        }
+    }
+
+    @Test
+    fun `PUT orders returns 404 when not found`() {
+        val id = UUID.randomUUID()
+        every { orderService.update(any(), any()) } throws OrderNotFoundException(id)
+
+        mockMvc.put("/orders/$id") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(mapOf("status" to "CANCELLED"))
+        }.andExpect {
+            status { isNotFound() }
+        }
+    }
+
+    @Test
+    fun `DELETE orders returns 204`() {
+        val id = UUID.randomUUID()
+        every { orderService.delete(id) } just runs
+
+        mockMvc.delete("/orders/$id").andExpect {
+            status { isNoContent() }
+        }
+    }
+
+    @Test
+    fun `DELETE orders returns 404 when not found`() {
+        val id = UUID.randomUUID()
+        every { orderService.delete(id) } throws OrderNotFoundException(id)
+
+        mockMvc.delete("/orders/$id").andExpect {
+            status { isNotFound() }
         }
     }
 }
