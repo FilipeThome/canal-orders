@@ -14,20 +14,15 @@ import java.security.MessageDigest
 data class IdempotentResult(val statusCode: Int, val body: Order)
 
 /**
- * Idempotency for POST /orders.
+ * Idempotency for POST /orders (Stripe/AWS-style).
  *
- * Contract (Stripe/AWS-style):
- *   * Header `Idempotency-Key: <opaque string up to 120 chars>`.
- *   * Same key + same body → return the cached response.
- *   * Same key + different body → 422 idempotency-conflict.
- *   * Missing key → 400 Bad Request.
+ * Same key + same body  → return cached response.
+ * Same key + different body → 422 idempotency-conflict.
+ * Missing key → 400 Bad Request.
  *
- * Concurrency:
- *   * We insert and flush the idempotency row before creating the order. The
- *     unique PK on `idempotency_keys.key` then serialises racing requests
- *     before payment is charged or stock is decremented.
- *   * A loser of the unique-key race rolls back and reads the winner's cached
- *     response after the winner commits.
+ * Concurrency: idempotency row is inserted and flushed before order creation.
+ * The unique PK serialises racing requests. The loser catches the constraint
+ * violation and reads the winner's cached response after commit.
  */
 @Service
 class IdempotencyService(
@@ -44,19 +39,13 @@ class IdempotencyService(
     ): IdempotentResult {
         val requestHash = sha256(canonicaliseRequest(request))
 
-        // Fast path: cached response exists.
         readCache(idempotencyKey, requestHash)?.let { return it }
 
-        try {
-            return idempotencyOrderCreatorService.create(idempotencyKey, requestHash, request)
+        return try {
+            idempotencyOrderCreatorService.create(idempotencyKey, requestHash, request)
         } catch (ex: DataIntegrityViolationException) {
-            // Lost the unique-key race before creating an order. Return the
-            // cached canonical response from the winner.
-            log.warn(
-                "Idempotency-Key {} hit a concurrent commit race; falling back to cache.",
-                idempotencyKey,
-            )
-            return readCache(idempotencyKey, requestHash) ?: throw ex
+            log.warn("Idempotency-Key {} hit a concurrent commit race; falling back to cache.", idempotencyKey)
+            readCache(idempotencyKey, requestHash) ?: throw ex
         }
     }
 
@@ -65,37 +54,33 @@ class IdempotencyService(
         requestHash: String,
     ): IdempotentResult? {
         val record = idempotencyKeyRepository.findById(key).orElse(null) ?: return null
-        if (record.requestHash != requestHash) {
-            throw IdempotencyConflictException(key)
-        }
+        if (record.requestHash != requestHash) throw IdempotencyConflictException(key)
         val orderId = record.orderId ?: return null
         val order =
             orderRepository.findByIdWithItems(orderId)
-                ?: throw IllegalStateException("Cached order ${record.orderId} no longer exists")
+                ?: throw IllegalStateException("Cached order $orderId no longer exists")
         log.debug("Idempotency cache hit for key={}", key)
         return IdempotentResult(record.responseStatus, order)
     }
 
-    /**
-     * Stable serialisation for request hashing. Same logical request →
-     * same bytes regardless of JSON field ordering or item order.
-     */
     private fun canonicaliseRequest(request: CreateOrderRequest): String {
         val canonical =
-            mapOf(
-                "customerId" to request.customerId.toString(),
-                "shippingAddress" to mapOf("line" to request.shippingAddress.addressLine.trim()),
-                "items" to
+            buildMap {
+                put("customerId", request.customerId.toString())
+                put("shippingAddress", mapOf("line" to request.shippingAddress.addressLine.trim()))
+                put(
+                    "items",
                     request.items
                         .sortedBy { it.productId.toString() }
                         .map { mapOf("productId" to it.productId.toString(), "quantity" to it.quantity) },
-                "payment" to mapOf("cardNumber" to request.payment.normalizedCardNumber),
-            )
+                )
+                put("payment", mapOf("cardNumber" to request.payment.normalizedCardNumber))
+            }
         return objectMapper.writeValueAsString(canonical)
     }
 
-    private fun sha256(input: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
-        return digest.joinToString(separator = "") { "%02x".format(it) }
-    }
+    private fun sha256(input: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { "%02x".format(it) }
 }

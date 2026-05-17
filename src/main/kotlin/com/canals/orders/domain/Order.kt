@@ -16,17 +16,11 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
- * Aggregate root for an order.
+ * Order aggregate root.
  *
- * Implementation notes:
- *   * The shipping address is intentionally denormalised onto the order — an
- *     order is an immutable historical record. If the customer changes
- *     their address book later, past orders MUST keep the address that was
- *     in effect when the order was placed.
- *   * Card details are NEVER stored. Only the masked last 4 digits, kept
- *     here so customer support can reference "the order paid with card
- *     ending in 1234" without ever touching PCI data.
- *   * The Postgres `order_status` enum is mapped via @JdbcTypeCode(NAMED_ENUM).
+ * Shipping address is denormalised — orders are immutable historical records.
+ * Card details are NEVER stored; only the last 4 digits for customer-support.
+ * Postgres `order_status` enum is mapped via @JdbcTypeCode(NAMED_ENUM).
  */
 @Entity
 @Table(name = "orders")
@@ -71,4 +65,27 @@ class Order(
         fetch = FetchType.LAZY,
     )
     val items: MutableList<OrderItem> = mutableListOf(),
-)
+) {
+    fun markPaid(
+        paymentId: String,
+        cardLast4: String,
+    ) {
+        val now = OffsetDateTime.now()
+        status = OrderStatus.PAID
+        this.paymentId = paymentId
+        this.cardLast4 = cardLast4
+        paidAt = now
+        updatedAt = now
+    }
+
+    fun markFailed(reason: String) {
+        status = OrderStatus.PAYMENT_FAILED
+        failureReason = reason
+        updatedAt = OffsetDateTime.now()
+    }
+
+    fun transitionTo(newStatus: OrderStatus) {
+        status = newStatus
+        updatedAt = OffsetDateTime.now()
+    }
+}

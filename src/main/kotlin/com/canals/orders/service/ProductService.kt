@@ -18,7 +18,8 @@ class ProductService(
     fun list(): List<Product> = productRepository.findAll()
 
     @Transactional(readOnly = true)
-    fun getById(id: UUID): Product = productRepository.findById(id).orElseThrow { ProductNotFoundException(id) }
+    fun getById(id: UUID): Product =
+        productRepository.findById(id).orElseThrow { ProductNotFoundException(id) }
 
     @Transactional(readOnly = true)
     fun findAllByIds(ids: Collection<UUID>): Map<UUID, Product> {
@@ -43,18 +44,18 @@ class ProductService(
     fun update(
         id: UUID,
         request: UpdateProductRequest,
-    ): Product {
-        val existing = getById(id)
-        return productRepository.save(
-            Product(
-                id = existing.id,
-                sku = request.sku,
-                name = request.name,
-                unitPrice = request.unitPrice,
-                createdAt = existing.createdAt,
-            ),
-        )
-    }
+    ): Product =
+        getById(id).let { existing ->
+            productRepository.save(
+                Product(
+                    id = existing.id,
+                    sku = request.sku,
+                    name = request.name,
+                    unitPrice = request.unitPrice,
+                    createdAt = existing.createdAt,
+                ),
+            )
+        }
 
     @Transactional
     fun delete(id: UUID) {

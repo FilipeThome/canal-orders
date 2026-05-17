@@ -26,4 +26,10 @@ class WarehouseStock(
     var quantity: Int,
     @Column(name = "updated_at", nullable = false)
     var updatedAt: OffsetDateTime = OffsetDateTime.now(),
-)
+) {
+    fun decrement(qty: Int) {
+        check(qty <= quantity) { "Cannot decrement $qty from available $quantity for product ${id.productId}" }
+        quantity -= qty
+        updatedAt = OffsetDateTime.now()
+    }
+}

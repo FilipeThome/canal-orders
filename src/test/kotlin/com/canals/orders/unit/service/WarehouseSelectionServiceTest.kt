@@ -5,6 +5,7 @@ import com.canals.orders.repository.WarehouseRepository
 import com.canals.orders.service.WarehouseSelectionService
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.math.BigDecimal
@@ -29,34 +30,33 @@ class WarehouseSelectionServiceTest {
     @Test
     fun `returns empty list when product map is empty`() {
         assertThat(service.findEligibleOrderedByDistance(emptyMap(), 40.0, -74.0)).isEmpty()
+        verify(exactly = 0) { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), any()) }
     }
 
     @Test
-    fun `returns empty list when no warehouse has stock for the product`() {
+    fun `returns empty list when batch query finds no eligible warehouse`() {
         val productId = UUID.randomUUID()
-        every { warehouseRepo.findWithStock(productId, 1) } returns emptyList()
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 1L) } returns emptyList()
 
         assertThat(service.findEligibleOrderedByDistance(mapOf(productId to 1), 40.0, -74.0)).isEmpty()
     }
 
     @Test
-    fun `returns the single warehouse that carries the product`() {
+    fun `returns the single warehouse returned by batch query`() {
         val productId = UUID.randomUUID()
         val wh = warehouse(40.71, -74.00)
-        every { warehouseRepo.findWithStock(productId, 2) } returns listOf(wh)
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 1L) } returns listOf(wh)
 
         assertThat(service.findEligibleOrderedByDistance(mapOf(productId to 2), 40.0, -74.0))
             .containsExactly(wh)
     }
 
     @Test
-    fun `returns empty list when warehouses have disjoint product coverage`() {
+    fun `returns empty list when no warehouse satisfies all products (DB does intersection)`() {
         val id1 = UUID.randomUUID()
         val id2 = UUID.randomUUID()
-        val whA = warehouse(40.0, -74.0) // NYC — has id1 only
-        val whB = warehouse(34.0, -118.0) // LA — has id2 only
-        every { warehouseRepo.findWithStock(id1, 1) } returns listOf(whA)
-        every { warehouseRepo.findWithStock(id2, 1) } returns listOf(whB)
+        // Batch query already returns intersection — no warehouse carries both
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 2L) } returns emptyList()
 
         assertThat(
             service.findEligibleOrderedByDistance(mapOf(id1 to 1, id2 to 1), 40.0, -74.0),
@@ -64,13 +64,12 @@ class WarehouseSelectionServiceTest {
     }
 
     @Test
-    fun `returns only warehouses that carry ALL requested products`() {
+    fun `returns only warehouses carrying ALL requested products`() {
         val id1 = UUID.randomUUID()
         val id2 = UUID.randomUUID()
-        val whFull = warehouse(41.0, -73.5) // has both products
-        val whPartial = warehouse(34.0, -118.0) // has only id1
-        every { warehouseRepo.findWithStock(id1, 1) } returns listOf(whFull, whPartial)
-        every { warehouseRepo.findWithStock(id2, 1) } returns listOf(whFull)
+        val whFull = warehouse(41.0, -73.5)
+        // Batch query filters partial warehouses at DB level; only whFull returned
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 2L) } returns listOf(whFull)
 
         val result = service.findEligibleOrderedByDistance(mapOf(id1 to 1, id2 to 1), 40.0, -74.0)
 
@@ -80,12 +79,34 @@ class WarehouseSelectionServiceTest {
     @Test
     fun `orders eligible warehouses by Haversine distance ascending`() {
         val productId = UUID.randomUUID()
-        val near = warehouse(41.0, -73.5) // ~80 km from ship point
-        val far = warehouse(34.0, -118.0) // ~3900 km from ship point
-        every { warehouseRepo.findWithStock(productId, 1) } returns listOf(far, near) // reversed input order
+        val near = warehouse(41.0, -73.5)   // ~80 km from ship point
+        val far = warehouse(34.0, -118.0)   // ~3900 km from ship point
+        every {
+            warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 1L)
+        } returns listOf(far, near) // reversed input order — service must sort
 
         val result = service.findEligibleOrderedByDistance(mapOf(productId to 1), 40.71, -74.0)
 
         assertThat(result).containsExactly(near, far)
+    }
+
+    @Test
+    fun `passes correct productCount to batch query`() {
+        val ids = (1..3).associate { UUID.randomUUID() to it }
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 3L) } returns emptyList()
+
+        service.findEligibleOrderedByDistance(ids, 40.0, -74.0)
+
+        verify(exactly = 1) { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), 3L) }
+    }
+
+    @Test
+    fun `issues exactly one DB query regardless of product count`() {
+        val ids = (1..5).associate { UUID.randomUUID() to it * 2 }
+        every { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), any()) } returns emptyList()
+
+        service.findEligibleOrderedByDistance(ids, 40.0, -74.0)
+
+        verify(exactly = 1) { warehouseRepo.findWarehousesWithSufficientStock(any(), any(), any()) }
     }
 }

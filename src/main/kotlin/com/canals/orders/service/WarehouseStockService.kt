@@ -3,8 +3,13 @@ package com.canals.orders.service
 import com.canals.orders.domain.WarehouseStock
 import com.canals.orders.repository.WarehouseStockRepository
 import org.springframework.stereotype.Service
-import java.time.OffsetDateTime
 import java.util.UUID
+
+sealed interface StockReservation {
+    data class Acquired(val stockByProduct: Map<UUID, WarehouseStock>) : StockReservation
+
+    data object Unavailable : StockReservation
+}
 
 @Service
 class WarehouseStockService(
@@ -13,24 +18,21 @@ class WarehouseStockService(
     fun tryLock(
         warehouseId: UUID,
         productToQty: Map<UUID, Int>,
-    ): Map<UUID, WarehouseStock>? {
+    ): StockReservation {
         val locked =
             warehouseStockRepo
                 .lockStockForUpdate(warehouseId, productToQty.keys)
                 .associateBy { it.id.productId }
         val feasible = productToQty.all { (productId, qty) -> (locked[productId]?.quantity ?: 0) >= qty }
-        return if (feasible) locked else null
+        return if (feasible) StockReservation.Acquired(locked) else StockReservation.Unavailable
     }
 
     fun decrement(
-        locked: Map<UUID, WarehouseStock>,
+        reservation: StockReservation.Acquired,
         productToQty: Map<UUID, Int>,
     ) {
-        val now = OffsetDateTime.now()
         productToQty.forEach { (productId, qty) ->
-            val stock = locked.getValue(productId)
-            stock.quantity -= qty
-            stock.updatedAt = now
+            reservation.stockByProduct.getValue(productId).decrement(qty)
         }
     }
 }

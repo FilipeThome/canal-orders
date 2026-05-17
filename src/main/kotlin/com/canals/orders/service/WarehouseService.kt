@@ -17,7 +17,8 @@ class WarehouseService(
     fun list(): List<Warehouse> = warehouseRepository.findAll()
 
     @Transactional(readOnly = true)
-    fun getById(id: UUID): Warehouse = warehouseRepository.findById(id).orElseThrow { WarehouseNotFoundException(id) }
+    fun getById(id: UUID): Warehouse =
+        warehouseRepository.findById(id).orElseThrow { WarehouseNotFoundException(id) }
 
     @Transactional
     fun create(request: CreateWarehouseRequest): Warehouse =
@@ -36,20 +37,20 @@ class WarehouseService(
     fun update(
         id: UUID,
         request: UpdateWarehouseRequest,
-    ): Warehouse {
-        val existing = getById(id)
-        return warehouseRepository.save(
-            Warehouse(
-                id = existing.id,
-                code = request.code,
-                name = request.name,
-                latitude = request.latitude,
-                longitude = request.longitude,
-                address = request.address,
-                createdAt = existing.createdAt,
-            ),
-        )
-    }
+    ): Warehouse =
+        getById(id).let { existing ->
+            warehouseRepository.save(
+                Warehouse(
+                    id = existing.id,
+                    code = request.code,
+                    name = request.name,
+                    latitude = request.latitude,
+                    longitude = request.longitude,
+                    address = request.address,
+                    createdAt = existing.createdAt,
+                ),
+            )
+        }
 
     @Transactional
     fun delete(id: UUID) {

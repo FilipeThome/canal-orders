@@ -23,6 +23,7 @@ import com.canals.orders.repository.OrderRepository
 import com.canals.orders.service.CustomerService
 import com.canals.orders.service.OrderService
 import com.canals.orders.service.ProductService
+import com.canals.orders.service.StockReservation
 import com.canals.orders.service.WarehouseSelectionService
 import com.canals.orders.service.WarehouseStockService
 import io.mockk.every
@@ -110,12 +111,14 @@ class OrderServiceTest {
                 address = "1 Test Way",
             )
         val locked =
-            mapOf(
-                productId to
-                    WarehouseStock(
-                        id = WarehouseStockId(warehouseId, productId),
-                        quantity = 100,
-                    ),
+            StockReservation.Acquired(
+                mapOf(
+                    productId to
+                        WarehouseStock(
+                            id = WarehouseStockId(warehouseId, productId),
+                            quantity = 100,
+                        ),
+                ),
             )
         every { customerService.getById(customerId) } returns customer
         every { productService.findAllByIds(listOf(productId)) } returns mapOf(productId to product)
@@ -251,12 +254,15 @@ class OrderServiceTest {
                 longitude = BigDecimal("-118.0"),
                 address = "addr2",
             )
-        val locked2 = mapOf(productId to WarehouseStock(id = WarehouseStockId(warehouseId2, productId), quantity = 50))
+        val locked2 =
+            StockReservation.Acquired(
+                mapOf(productId to WarehouseStock(id = WarehouseStockId(warehouseId2, productId), quantity = 50)),
+            )
         every { customerService.getById(customerId) } returns customer
         every { productService.findAllByIds(any()) } returns mapOf(productId to product)
         every { geocodingService.geocode(any()) } returns GeoCoordinates(BigDecimal("40.0"), BigDecimal("-74.0"))
         every { warehouseSelectionService.findEligibleOrderedByDistance(any(), any(), any()) } returns listOf(wh1, wh2)
-        every { warehouseStockService.tryLock(warehouseId, any()) } returns null
+        every { warehouseStockService.tryLock(warehouseId, any()) } returns StockReservation.Unavailable
         every { warehouseStockService.tryLock(warehouseId2, any()) } returns locked2
         every { warehouseStockService.decrement(any(), any()) } just runs
         every { orderRepository.save(any()) } answers { firstArg() }
@@ -291,7 +297,7 @@ class OrderServiceTest {
         every { productService.findAllByIds(any()) } returns mapOf(productId to product)
         every { geocodingService.geocode(any()) } returns GeoCoordinates(BigDecimal("40.0"), BigDecimal("-74.0"))
         every { warehouseSelectionService.findEligibleOrderedByDistance(any(), any(), any()) } returns listOf(warehouse)
-        every { warehouseStockService.tryLock(warehouseId, any()) } returns null
+        every { warehouseStockService.tryLock(warehouseId, any()) } returns StockReservation.Unavailable
 
         assertThatThrownBy { service.create(request()) }
             .isInstanceOf(NoEligibleWarehouseException::class.java)
