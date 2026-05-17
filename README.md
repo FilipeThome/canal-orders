@@ -49,7 +49,7 @@ HTTP Requests
 |  OrderService        — order transaction       |
 |  CustomerService     — customer lookup         |
 |  ProductService      — product lookup          |
-|  WarehouseStockService — lock + decrement      |
+|  WarehouseStockService — lock → sealed StockReservation + decrement |
 |  WarehouseSelectionService — Haversine ranking |
 |  WarehouseService    — warehouse listing       |
 +-----------------------------------------------+
@@ -80,6 +80,23 @@ The service is production-shaped: real database, real migrations, explicit JSON 
 
 ---
 
+## Code quality highlights
+
+The codebase follows **SOLID + Clean Code** principles with idiomatic Kotlin throughout.
+
+| Area | What was done |
+|------|--------------|
+| **Rich domain** | `Order` owns `markPaid()`, `markFailed()`, `transitionTo()`. `WarehouseStock` owns `decrement(qty)`. State mutations no longer scattered across the service layer. |
+| **Sealed result types** | `WarehouseStockService.tryLock()` returns `sealed StockReservation { Acquired | Unavailable }` — exhaustive `when` at every call site, no nullable `Map?`. |
+| **O(1) warehouse query** | `WarehouseSelectionService` replaced N+1 per-product queries with a single native SQL batch query using Postgres `UNNEST` + `GROUP BY / HAVING COUNT = P`. |
+| **Zero DTO duplication** | `UpdateCustomerRequest`, `UpdateProductRequest`, `UpdateWarehouseRequest` are `typealias` for their Create counterparts — identical contracts, one source of truth. |
+| **Decomposed service** | `OrderService.create()` split from 128 lines into `validateNoDuplicateProducts()`, `fulfillWithFirstAvailableWarehouse()`, `buildOrder()`, `chargePayment()` — each with single responsibility. |
+| **Exception handler DSL** | `GlobalExceptionHandler` uses a private `problem(status, detail, type, configure)` with trailing lambda — all handlers reduced to single-line expressions. |
+| **Idiomatic Kotlin** | `let {}`, `apply {}`, `buildMap {}`, `sumOf {}`, `kotlin.random.Random`, `orElseThrow {}`, `associateBy {}` throughout; no unnecessary `var`, no `Math.random()`. |
+| **Query ownership** | `Warehouse.@NamedQuery` moved to `WarehouseRepository.@Query` — entities own data, repositories own queries. |
+
+---
+
 ## Domain model
 
 | Table              | Purpose                                                                                                                           |
@@ -103,11 +120,10 @@ The status of an order is a Postgres native ENUM (`order_status`) with values `P
 1. **Validate** — customer exists, products exist, no duplicate product IDs in the request.
 2. **Geocode** — convert the shipping address to (lat, lng) via `GeocodingService` (mocked: deterministic hash, so the same address always yields the same coordinates).
 3. **Find candidate warehouses** — `WarehouseSelectionService`:
-   - Runs one JPQL named query per requested product (`Warehouse.findWithStock`) to find warehouses with sufficient stock for that item.
-   - Intersects the result sets in Kotlin to get warehouses that can fulfil **all** items.
-   - Sorts candidates by Haversine distance (Kotlin, `distanceBetweenKm`) ascending.
-4. **Lock and verify stock** — `WarehouseStockService.tryLock()` issues `SELECT ... FOR UPDATE` ordered by `product_id` (deterministic lock order prevents deadlocks), then re-checks quantities under the lock. Between step 3 and now another transaction may have shipped the last unit — if no longer feasible, fall back to the next candidate.
-5. **Decrement stock** — `WarehouseStockService.decrement()` mutates the locked rows inside the same transaction.
+   - Runs a **single native SQL batch query** (`findWarehousesWithSufficientStock`) using Postgres `UNNEST` to expand the product-id / min-quantity pairs into an inline relation, joined to `warehouse_stock`, and grouped by warehouse. A `HAVING COUNT(DISTINCT product_id) = P` predicate ensures every warehouse in the result carries **all** P requested products at the required quantities — in one round-trip regardless of how many products are in the order.
+   - Sorts the result by Haversine distance ascending in application code.
+4. **Lock and verify stock** — `WarehouseStockService.tryLock()` issues `SELECT ... FOR UPDATE` ordered by `product_id` (deterministic lock order prevents deadlocks), then re-checks quantities under the lock. Returns a `sealed StockReservation` (`Acquired` or `Unavailable`). Between step 3 and now another transaction may have shipped the last unit — if `Unavailable`, fall back to the next candidate.
+5. **Decrement stock** — `WarehouseStockService.decrement(reservation, productToQty)` delegates to `WarehouseStock.decrement(qty)` on each locked domain entity, keeping the mutation inside the aggregate.
 6. **Persist the order** in `PENDING_PAYMENT`, snapshot prices into `order_items`.
 7. **Charge the card** via `PaymentService` (mocked):
    - On approval → mark `PAID`, store `payment_id`, `card_last4`, `paid_at`. Commit.
@@ -450,9 +466,9 @@ canals-orders/
         │   ├── domain/                         — JPA entities
         │   │   ├── Customer.kt
         │   │   ├── Product.kt
-        │   │   ├── Warehouse.kt                — @NamedQuery for stock lookup
-        │   │   ├── WarehouseStock.kt
-        │   │   ├── Order.kt
+        │   │   ├── Warehouse.kt                — location entity (query moved to WarehouseRepository)
+        │   │   ├── WarehouseStock.kt           — decrement(qty) domain method
+        │   │   ├── Order.kt                    — aggregate root; markPaid(), markFailed(), transitionTo()
         │   │   ├── OrderItem.kt
         │   │   ├── OrderStatus.kt
         │   │   └── IdempotencyKey.kt
@@ -472,7 +488,7 @@ canals-orders/
         │   ├── repository/
         │   │   ├── CustomerRepository.kt
         │   │   ├── ProductRepository.kt
-        │   │   ├── WarehouseRepository.kt      — findWithStock named query
+        │   │   ├── WarehouseRepository.kt      — single-batch stock eligibility query (UNNEST + GROUP BY HAVING)
         │   │   ├── WarehouseStockRepository.kt — PESSIMISTIC_WRITE lock query
         │   │   ├── OrderRepository.kt
         │   │   └── IdempotencyKeyRepository.kt
@@ -480,9 +496,9 @@ canals-orders/
         │       ├── CustomerService.kt          — Customer listing + lookup by id
         │       ├── ProductService.kt           — Product listing + bulk lookup by ids
         │       ├── WarehouseService.kt         — Warehouse listing
-        │       ├── WarehouseStockService.kt    — Pessimistic lock + stock decrement
-        │       ├── WarehouseSelectionService.kt — Eligible warehouse lookup + Haversine
-        │       ├── OrderService.kt                  — Order listing + core order transaction
+        │       ├── WarehouseStockService.kt    — PESSIMISTIC_WRITE lock → sealed StockReservation; decrement delegates to domain
+        │       ├── WarehouseSelectionService.kt — O(1) batch query + Haversine sort
+        │       ├── OrderService.kt             — Order listing + pipeline (validate → geocode → select → lock → persist → charge)
         │       ├── IdempotencyService.kt            — Key claim + cache lookup (required header)
         │       └── IdempotencyOrderCreatorService.kt — @Transactional order creation boundary
         └── resources/
@@ -512,6 +528,6 @@ What was deliberately scoped out (and would be the obvious next steps):
 - **PostGIS** for spatial indexing — nice-to-have but the warehouse table will not realistically reach a size where the Haversine computation in `WarehouseSelectionService` becomes a bottleneck.
 - **Outbox pattern** for the `Payment` call — production systems decouple "order persisted" from "card charged" via an outbox table + worker, so a payment-gateway timeout can't leave inconsistent state. The current implementation is acceptable because we charge inside the same Tx and roll back on decline; a network timeout AFTER the gateway charged would still leave a problematic gap. Mitigation: idempotent retries from the client + payment-side reconciliation job.
 - **Authentication / authorization** — explicitly excluded by the spec.
-- **Contract / load / mutation testing** — unit and integration tests are in place with JaCoCo coverage enforcement (≥ 95% instruction, ≥ 80% line, ≥ 70% branch); property-based and contract tests would be the obvious next layer.
+- **Contract / load / mutation testing** — unit and integration tests are in place with JaCoCo coverage enforcement (≥ 80% line, ≥ 70% branch); property-based and contract tests would be the obvious next layer.
 - **Inventory release on payment failure across separate transactions** — the current "rollback the whole Tx" approach works for the synchronous gateway but a fully async saga would track stock reservations as a first-class entity with a TTL.
 - **Rate limiting / circuit breaker** on the payment client (Resilience4j) — would be wired in if the gateway were real.
