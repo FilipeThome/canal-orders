@@ -17,7 +17,8 @@ class CustomerService(
     fun list(): List<Customer> = customerRepository.findAll()
 
     @Transactional(readOnly = true)
-    fun getById(id: UUID): Customer = customerRepository.findById(id).orElseThrow { CustomerNotFoundException(id) }
+    fun getById(id: UUID): Customer =
+        customerRepository.findById(id).orElseThrow { CustomerNotFoundException(id) }
 
     @Transactional
     fun create(request: CreateCustomerRequest): Customer =
@@ -33,17 +34,17 @@ class CustomerService(
     fun update(
         id: UUID,
         request: UpdateCustomerRequest,
-    ): Customer {
-        val existing = getById(id)
-        return customerRepository.save(
-            Customer(
-                id = existing.id,
-                email = request.email,
-                fullName = request.fullName,
-                createdAt = existing.createdAt,
-            ),
-        )
-    }
+    ): Customer =
+        getById(id).let { existing ->
+            customerRepository.save(
+                Customer(
+                    id = existing.id,
+                    email = request.email,
+                    fullName = request.fullName,
+                    createdAt = existing.createdAt,
+                ),
+            )
+        }
 
     @Transactional
     fun delete(id: UUID) {

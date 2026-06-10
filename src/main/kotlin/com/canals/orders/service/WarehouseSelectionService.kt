@@ -14,6 +14,14 @@ import kotlin.math.sqrt
 class WarehouseSelectionService(
     private val warehouseRepo: WarehouseRepository,
 ) {
+    /**
+     * Returns warehouses that can fulfil every item in [productIdsToQuantities],
+     * sorted by Haversine distance from the shipping coordinates.
+     *
+     * Complexity: O(1) DB round-trips (single batch query), O(W log W) sort
+     * where W = eligible warehouses.  Previous implementation fired one query
+     * per product (O(P) round-trips) and intersected results in memory.
+     */
     fun findEligibleOrderedByDistance(
         productIdsToQuantities: Map<UUID, Int>,
         shipLat: Double,
@@ -21,35 +29,30 @@ class WarehouseSelectionService(
     ): List<Warehouse> {
         if (productIdsToQuantities.isEmpty()) return emptyList()
 
-        val resultSets =
-            productIdsToQuantities.entries
-                .map { e -> warehouseRepo.findWithStock(e.key, e.value).associateBy { it.id } }
+        val productIds = productIdsToQuantities.keys.toList()
+        val quantities = productIds.map { productIdsToQuantities.getValue(it) }
 
-        val eligibleIds: Set<UUID> =
-            resultSets
-                .map { it.keys }
-                .reduce { acc: Set<UUID>, ids: Set<UUID> -> acc intersect ids }
-
-        if (eligibleIds.isEmpty()) return emptyList()
-
-        return resultSets.first()
-            .filterKeys { it in eligibleIds }
-            .values
-            .sortedBy { w -> distanceBetweenKm(shipLat, shipLng, w.latitude.toDouble(), w.longitude.toDouble()) }
+        return warehouseRepo
+            .findWarehousesWithSufficientStock(
+                productIds = productIds.joinToString(","),
+                quantities = quantities.joinToString(","),
+                productCount = productIds.size.toLong(),
+            )
+            .sortedBy { w -> distanceKm(shipLat, shipLng, w.latitude.toDouble(), w.longitude.toDouble()) }
     }
 
-    private fun distanceBetweenKm(
+    private fun distanceKm(
         fromLat: Double,
         fromLng: Double,
         toLat: Double,
         toLng: Double,
     ): Double {
         val earthRadiusKm = 6371.0
+        val dLat = Math.toRadians(toLat - fromLat)
+        val dLng = Math.toRadians(toLng - fromLng)
         val fromLatRad = Math.toRadians(fromLat)
         val toLatRad = Math.toRadians(toLat)
-        val deltaLat = Math.toRadians(toLat - fromLat)
-        val deltaLng = Math.toRadians(toLng - fromLng)
-        val a = sin(deltaLat / 2).pow(2) + cos(fromLatRad) * cos(toLatRad) * sin(deltaLng / 2).pow(2)
+        val a = sin(dLat / 2).pow(2) + cos(fromLatRad) * cos(toLatRad) * sin(dLng / 2).pow(2)
         return earthRadiusKm * 2 * asin(sqrt(a))
     }
 }

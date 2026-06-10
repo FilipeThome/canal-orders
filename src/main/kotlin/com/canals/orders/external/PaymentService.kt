@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.util.UUID
+import kotlin.random.Random
 
 data class PaymentRequest(
     val cardNumber: String,
@@ -56,7 +57,7 @@ class MockPaymentService(
         // Test card "0000 0000 0000 0002" always declines (mirrors Stripe's
         // standard test cards). Otherwise, optionally fail by configured rate.
         val forcedDecline = request.cardNumber.endsWith("0002")
-        val randomDecline = failureRate > 0 && Math.random() < failureRate
+        val randomDecline = failureRate > 0 && Random.nextDouble() < failureRate
 
         return when {
             forcedDecline -> PaymentResult.Declined("Card declined by issuer", cardLast4)

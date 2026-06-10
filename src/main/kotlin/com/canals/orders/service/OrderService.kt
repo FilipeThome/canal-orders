@@ -1,14 +1,19 @@
 package com.canals.orders.service
 
+import com.canals.orders.domain.Customer
 import com.canals.orders.domain.Order
 import com.canals.orders.domain.OrderItem
 import com.canals.orders.domain.OrderStatus
+import com.canals.orders.domain.Product
+import com.canals.orders.domain.Warehouse
 import com.canals.orders.dto.CreateOrderRequest
+import com.canals.orders.dto.OrderItemDto
 import com.canals.orders.dto.request.UpdateOrderRequest
 import com.canals.orders.exception.DuplicateProductInOrderException
 import com.canals.orders.exception.NoEligibleWarehouseException
 import com.canals.orders.exception.OrderNotFoundException
 import com.canals.orders.exception.PaymentFailedException
+import com.canals.orders.external.GeoCoordinates
 import com.canals.orders.external.GeocodingService
 import com.canals.orders.external.PaymentRequest
 import com.canals.orders.external.PaymentResult
@@ -19,28 +24,22 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
  * Order creation pipeline.
  *
- * Step-by-step:
+ * Steps:
  *   1. Validate inputs (customer exists, products exist, no duplicate lines).
  *   2. Geocode the shipping address.
- *   3. Find every warehouse with stock for ALL items, ordered by distance.
- *   4. Lock the chosen warehouse's stock rows (PESSIMISTIC_WRITE) and
- *      verify quantities again — between step 3 and now another tx may
- *      have shipped some inventory.
- *   5. Persist the order in PENDING_PAYMENT and decrement stock.
- *   6. Call the payment gateway. On approval mark PAID; on decline mark
- *      PAYMENT_FAILED and roll back stock changes.
+ *   3. Find warehouses with stock for ALL items, ordered by distance.
+ *   4. Lock chosen warehouse stock rows (PESSIMISTIC_WRITE), verify quantities.
+ *   5. Persist order as PENDING_PAYMENT; decrement stock.
+ *   6. Charge payment gateway. On approval → PAID; on decline → roll back via exception.
  *
- * Why we decrement stock BEFORE charging: the alternative (charge first,
- * then decrement) means a successful charge with no stock left is possible
- * if a competitor steals the last unit between steps. We prefer the
- * "reserve then charge" pattern; on payment failure we restore stock in a
- * compensating action.
+ * Stock is reserved before charging: the "reserve then charge" pattern prevents
+ * a successful charge with no stock left. Payment failure throws, rolling back
+ * both the order and the stock decrement in the same transaction.
  */
 @Service
 class OrderService(
@@ -64,12 +63,11 @@ class OrderService(
     fun update(
         id: UUID,
         request: UpdateOrderRequest,
-    ): Order {
-        val order = getById(id)
-        order.status = request.status
-        order.updatedAt = OffsetDateTime.now()
-        return orderRepository.save(order)
-    }
+    ): Order =
+        getById(id).also { order ->
+            order.transitionTo(request.status)
+            orderRepository.save(order)
+        }
 
     @Transactional
     fun delete(id: UUID) {
@@ -79,20 +77,12 @@ class OrderService(
 
     @Transactional
     fun create(request: CreateOrderRequest): Order {
-        // ---- 1. Validate ----
         val customer = customerService.getById(request.customerId)
-
-        val productIds = request.items.map { it.productId }
-        val duplicates = productIds.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
-        if (duplicates.isNotEmpty()) throw DuplicateProductInOrderException(duplicates)
-
-        val products = productService.findAllByIds(productIds)
-
-        // ---- 2. Geocode shipping address ----
+        validateNoDuplicateProducts(request.items)
+        val products = productService.findAllByIds(request.items.map { it.productId })
         val coords = geocodingService.geocode(request.shippingAddress.addressLine)
-
-        // ---- 3. Find eligible warehouse, closest first ----
         val productToQty = request.items.associate { it.productId to it.quantity }
+
         val candidates =
             warehouseSelectionService.findEligibleOrderedByDistance(
                 productIdsToQuantities = productToQty,
@@ -100,52 +90,75 @@ class OrderService(
                 shipLng = coords.longitude.toDouble(),
             )
         if (candidates.isEmpty()) {
-            throw NoEligibleWarehouseException(
-                "No single warehouse can fulfil all requested items in the given quantities.",
-            )
+            throw NoEligibleWarehouseException("No single warehouse can fulfil all requested items in the given quantities.")
         }
 
-        // The query already filters by stock availability, but a concurrent
-        // order may invalidate the result before we lock. We try candidates
-        // in order; if the first is no longer feasible we move to the next.
+        return fulfillWithFirstAvailableWarehouse(candidates, request, customer, products, productToQty, coords)
+    }
+
+    private fun validateNoDuplicateProducts(items: List<OrderItemDto>) {
+        val duplicates =
+            items.map { it.productId }
+                .groupingBy { it }
+                .eachCount()
+                .filterValues { it > 1 }
+                .keys
+        if (duplicates.isNotEmpty()) throw DuplicateProductInOrderException(duplicates)
+    }
+
+    private fun fulfillWithFirstAvailableWarehouse(
+        candidates: List<Warehouse>,
+        request: CreateOrderRequest,
+        customer: Customer,
+        products: Map<UUID, Product>,
+        productToQty: Map<UUID, Int>,
+        coords: GeoCoordinates,
+    ): Order {
         for (candidate in candidates) {
-            val warehouseId = candidate.id
-            val locked = warehouseStockService.tryLock(warehouseId, productToQty)
-            if (locked == null) {
-                log.warn(
-                    "Warehouse {} lost feasibility under lock; trying next candidate",
-                    warehouseId,
-                )
-                continue
+            when (val reservation = warehouseStockService.tryLock(candidate.id, productToQty)) {
+                StockReservation.Unavailable -> {
+                    log.warn("Warehouse {} lost feasibility under lock; trying next candidate", candidate.id)
+                }
+                is StockReservation.Acquired -> {
+                    warehouseStockService.decrement(reservation, productToQty)
+                    val order = buildOrder(request, customer, candidate, products, coords)
+                    orderRepository.save(order)
+                    return chargePayment(order, request.payment.normalizedCardNumber)
+                }
             }
+        }
+        throw NoEligibleWarehouseException(
+            "Stock for all eligible warehouses was claimed by concurrent orders. Please retry.",
+        )
+    }
 
-            // ---- 4. Decrement stock ----
-            warehouseStockService.decrement(locked, productToQty)
+    private fun buildOrder(
+        request: CreateOrderRequest,
+        customer: Customer,
+        warehouse: Warehouse,
+        products: Map<UUID, Product>,
+        coords: GeoCoordinates,
+    ): Order {
+        val totalAmount =
+            request.items
+                .sumOf { line -> products.getValue(line.productId).unitPrice.multiply(BigDecimal(line.quantity)) }
+                .setScale(2, RoundingMode.HALF_UP)
 
-            // ---- 5. Persist order in PENDING_PAYMENT ----
-            val totalAmount =
-                request.items
-                    .map { line -> products.getValue(line.productId).unitPrice.multiply(BigDecimal(line.quantity)) }
-                    .reduce(BigDecimal::add)
-                    .setScale(2, RoundingMode.HALF_UP)
-
-            val order =
-                Order(
-                    id = UUID.randomUUID(),
-                    customerId = customer.id,
-                    warehouseId = warehouseId,
-                    status = OrderStatus.PENDING_PAYMENT,
-                    shipAddressLine = request.shippingAddress.addressLine,
-                    shipLatitude = coords.latitude,
-                    shipLongitude = coords.longitude,
-                    totalAmount = totalAmount,
-                    currency = "USD",
-                )
+        return Order(
+            id = UUID.randomUUID(),
+            customerId = customer.id,
+            warehouseId = warehouse.id,
+            status = OrderStatus.PENDING_PAYMENT,
+            shipAddressLine = request.shippingAddress.addressLine,
+            shipLatitude = coords.latitude,
+            shipLongitude = coords.longitude,
+            totalAmount = totalAmount,
+        ).apply {
             request.items.forEach { line ->
                 val product = products.getValue(line.productId)
-                order.items.add(
+                items.add(
                     OrderItem(
-                        order = order,
+                        order = this,
                         productId = product.id,
                         productName = product.name,
                         quantity = line.quantity,
@@ -153,57 +166,38 @@ class OrderService(
                     ),
                 )
             }
-            orderRepository.save(order)
+        }
+    }
 
-            // ---- 6. Charge the card ----
-            val result =
-                paymentService.charge(
-                    PaymentRequest(
-                        cardNumber = request.payment.normalizedCardNumber,
-                        amount = totalAmount,
-                        currency = order.currency,
-                        description = "Canals order ${order.id}",
-                    ),
+    private fun chargePayment(
+        order: Order,
+        normalizedCardNumber: String,
+    ): Order {
+        val result =
+            paymentService.charge(
+                PaymentRequest(
+                    cardNumber = normalizedCardNumber,
+                    amount = order.totalAmount,
+                    currency = order.currency,
+                    description = "Canals order ${order.id}",
+                ),
+            )
+        return when (result) {
+            is PaymentResult.Approved -> {
+                order.markPaid(result.paymentId, result.cardLast4)
+                log.info(
+                    "Order {} paid (warehouse={}, amount={} {})",
+                    order.id,
+                    order.warehouseId,
+                    order.totalAmount,
+                    order.currency,
                 )
-
-            return when (result) {
-                is PaymentResult.Approved -> {
-                    order.status = OrderStatus.PAID
-                    order.paymentId = result.paymentId
-                    order.cardLast4 = result.cardLast4
-                    order.paidAt = OffsetDateTime.now()
-                    order.updatedAt = OffsetDateTime.now()
-                    log.info(
-                        "Order {} paid (warehouse={}, amount={} {})",
-                        order.id,
-                        warehouseId,
-                        totalAmount,
-                        order.currency,
-                    )
-                    order
-                }
-                is PaymentResult.Declined -> {
-                    // Throwing rolls back the entire transaction — including
-                    // the order row AND the stock decrement. That's the
-                    // compensation. A persisted "PAYMENT_FAILED" order is
-                    // arguably useful for audit, but it would leave inventory
-                    // committed; we'd need to release it on a separate Tx.
-                    // For this assessment we surface the failure to the caller.
-                    log.warn(
-                        "Order {} payment declined (card …{}): {}",
-                        order.id,
-                        result.cardLast4,
-                        result.reason,
-                    )
-                    throw PaymentFailedException(result.reason)
-                }
+                order
+            }
+            is PaymentResult.Declined -> {
+                log.warn("Order {} payment declined (card ...{}): {}", order.id, result.cardLast4, result.reason)
+                throw PaymentFailedException(result.reason)
             }
         }
-
-        // All candidates lost feasibility under lock.
-        throw NoEligibleWarehouseException(
-            "Stock for all eligible warehouses was claimed by concurrent orders. " +
-                "Please retry.",
-        )
     }
 }
